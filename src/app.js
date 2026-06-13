@@ -265,14 +265,13 @@ function drawAnimatedTile(x, y, anim, now) {
 }
 
 function resize() {
-  width = window.innerWidth;
-  height = window.innerHeight;
+  const rect = canvas.getBoundingClientRect();
+  width = rect.width || window.innerWidth;
+  height = rect.height || window.innerHeight;
   dpr = Math.min(window.devicePixelRatio || 1, 2.5);
 
   canvas.width = Math.ceil(width * dpr);
   canvas.height = Math.ceil(height * dpr);
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
 
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';

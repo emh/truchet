@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Blue and yellow Truchet tile">
   <rect width="512" height="512" fill="#f3f0e8"/>
-  <path d="M256 64A192 192 0 0 0 64 256" fill="none" stroke="#2457a6" stroke-width="64" stroke-linecap="butt"/>
-  <path d="M448 256A192 192 0 0 0 256 448" fill="none" stroke="#e7bd2c" stroke-width="64" stroke-linecap="butt"/>
+  <path d="M256 0A256 256 0 0 1 0 256" fill="none" stroke="#2457a6" stroke-width="64" stroke-linecap="butt"/>
+  <path d="M256 512A256 256 0 0 1 512 256" fill="none" stroke="#e7bd2c" stroke-width="64" stroke-linecap="butt"/>
 </svg>
