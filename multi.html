@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#efeade" />
+  <title>Multi-scale Truchet — Winged Tiles</title>
+  <style>
+    :root { --paper:#efeade; --ink:#0b0b09; --line:rgba(11,11,9,.16); --glass:rgba(239,234,222,.78); }
+    * { box-sizing:border-box; }
+    html,body { width:100%; height:100%; margin:0; overflow:hidden; background:var(--paper); touch-action:none; user-select:none; -webkit-user-select:none; overscroll-behavior:none; font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    canvas { position:fixed; inset:0; width:100vw; height:100vh; display:block; background:var(--paper); touch-action:none; cursor:grab; }
+    canvas.dragging { cursor:grabbing; }
+    .toolbar { position:fixed; left:50%; bottom:max(14px,env(safe-area-inset-bottom)); transform:translateX(-50%); display:grid; grid-template-columns:repeat(3,1fr); gap:6px; padding:6px; border:1px solid var(--line); border-radius:999px; background:var(--glass); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); box-shadow:0 12px 38px rgba(0,0,0,.12); z-index:2; }
+    button { appearance:none; border:0; border-radius:999px; padding:10px 14px; min-width:82px; background:transparent; color:rgba(11,11,9,.68); font:600 12px/1 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; letter-spacing:.02em; }
+    button.active { background:var(--ink); color:var(--paper); }
+    .hint { position:fixed; left:max(12px,env(safe-area-inset-left)); top:max(12px,env(safe-area-inset-top)); padding:8px 10px; border:1px solid var(--line); border-radius:999px; background:var(--glass); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); color:rgba(11,11,9,.62); font-size:12px; opacity:0; transform:translateY(-4px); transition:opacity 220ms ease,transform 220ms ease; pointer-events:none; z-index:2; }
+    .hint.visible { opacity:1; transform:translateY(0); }
+  </style>
+</head>
+<body>
+<canvas id="canvas" aria-label="Multi-scale Truchet canvas"></canvas>
+<div id="hint" class="hint visible">drag to pan · pinch/wheel to zoom</div>
+<div class="toolbar" role="toolbar" aria-label="Tools">
+  <button data-mode="rotate" class="active">rotate</button>
+  <button data-mode="fracture">fracture</button>
+  <button data-mode="join">join</button>
+</div>
+<script>
+(() => {
+  'use strict';
+
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { alpha:false, desynchronized:true });
+  const hint = document.getElementById('hint');
+  const buttons = [...document.querySelectorAll('button[data-mode]')];
+
+  const PAPER = '#efeade';
+  const INK = '#0b0b09';
+  const SEED = 0x9e3779b9;
+  const BASE = 210;
+  const MAX_LEVEL = 8;
+  const MIN_SIZE_SCREEN = 18;
+  const ROTATE_MS = 190;
+  const PI2 = Math.PI * 2;
+  const HALF_PI = Math.PI / 2;
+  const STORE_KEY = 'multiscale-truchet:winged:v3';
+
+  let width = 0, height = 0, dpr = 1, mode = 'rotate', raf = 0, hintTimer = 0, inertiaRaf = 0;
+  const camera = { x:0, y:0, zoom:1 };
+  const velocity = { x:0, y:0 };
+  const split = new Set();
+  const flip = new Set();
+  const animations = new Map();
+  loadState();
+
+  function key(level,x,y){ return `${level}:${x}:${y}`; }
+  function parseKey(k){ const [level,x,y] = k.split(':').map(Number); return { level,x,y }; }
+  function sizeAt(level){ return BASE / (1 << level); }
+  function originOf(level,x,y){ const s = sizeAt(level); return { ox:x*s, oy:y*s, s }; }
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+  function hash(level,x,y){
+    let h = SEED ^ Math.imul(level + 1, 0x85ebca6b);
+    h = Math.imul(h ^ x, 0xc2b2ae35);
+    h = Math.imul(h ^ y, 0x27d4eb2d);
+    h ^= h >>> 16; h = Math.imul(h, 0x7feb352d);
+    h ^= h >>> 15; h = Math.imul(h, 0x846ca68b);
+    h ^= h >>> 16;
+    return h >>> 0;
+  }
+
+  function defaultOrientation(level,x,y){ return hash(level, x|0, y|0) & 1; }
+  function orientation(level,x,y){ const k = key(level,x,y); return flip.has(k) ? defaultOrientation(level,x,y) ^ 1 : defaultOrientation(level,x,y); }
+
+  function loadState(){
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (Array.isArray(s.split)) s.split.forEach(k => split.add(k));
+      if (Array.isArray(s.flip)) s.flip.forEach(k => flip.add(k));
+    } catch (_) {}
+  }
+
+  let saveTimer = 0;
+  function saveState(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify({ split:[...split], flip:[...flip] })); } catch (_) {}
+    }, 120);
+  }
+
+  function resize(){
+    width = innerWidth; height = innerHeight; dpr = Math.min(devicePixelRatio || 1, 2.5);
+    canvas.width = Math.ceil(width*dpr); canvas.height = Math.ceil(height*dpr);
+    canvas.style.width = width + 'px'; canvas.style.height = height + 'px';
+    requestDraw();
+  }
+
+  function requestDraw(){ if (!raf) raf = requestAnimationFrame(draw); }
+
+  function screenToWorld(sx,sy){ return { x:camera.x + (sx - width/2) / camera.zoom, y:camera.y + (sy - height/2) / camera.zoom }; }
+
+  function setWorldTransform(){
+    ctx.setTransform(dpr*camera.zoom,0,0,dpr*camera.zoom,
+      dpr*(width/2 - camera.x*camera.zoom),
+      dpr*(height/2 - camera.y*camera.zoom));
+  }
+
+  function visibleWorldBounds(){
+    const pad = BASE * 1.25 / camera.zoom;
+    return { left:camera.x - width/(2*camera.zoom) - pad, right:camera.x + width/(2*camera.zoom) + pad, top:camera.y - height/(2*camera.zoom) - pad, bottom:camera.y + height/(2*camera.zoom) + pad };
+  }
+
+  function intersects(x,y,s,b){
+    const wing = s/2;
+    return x-wing < b.right && x+s+wing > b.left && y-wing < b.bottom && y+s+wing > b.top;
+  }
+
+  function collectLeaves(){
+    const b = visibleWorldBounds();
+    const leaves = [];
+    const ix0 = Math.floor(b.left/BASE) - 1, ix1 = Math.floor(b.right/BASE) + 1;
+    const iy0 = Math.floor(b.top/BASE) - 1, iy1 = Math.floor(b.bottom/BASE) + 1;
+    for (let y=iy0; y<=iy1; y++) for (let x=ix0; x<=ix1; x++) collectNode(0,x,y,b,leaves);
+    leaves.sort((a,b) => a.level - b.level || a.oy - b.oy || a.ox - b.ox);
+    return leaves;
+  }
+
+  function collectNode(level,x,y,b,leaves){
+    const {ox,oy,s} = originOf(level,x,y);
+    if (!intersects(ox,oy,s,b)) return;
+    const k = key(level,x,y);
+    if (split.has(k) && level < MAX_LEVEL && s * camera.zoom > MIN_SIZE_SCREEN) {
+      const nx = x*2, ny = y*2;
+      collectNode(level+1,nx,ny,b,leaves); collectNode(level+1,nx+1,ny,b,leaves);
+      collectNode(level+1,nx,ny+1,b,leaves); collectNode(level+1,nx+1,ny+1,b,leaves);
+    } else {
+      leaves.push({ level,x,y,ox,oy,s,k });
+    }
+  }
+
+  function findLeafAt(wx,wy){
+    let level=0, s=BASE, x=Math.floor(wx/s), y=Math.floor(wy/s);
+    while (level < MAX_LEVEL && split.has(key(level,x,y))) {
+      const ox=x*s, oy=y*s, half=s/2;
+      const cx = wx >= ox + half ? 1 : 0;
+      const cy = wy >= oy + half ? 1 : 0;
+      x = x*2 + cx; y = y*2 + cy; level++; s = half;
+    }
+    return { level,x,y,k:key(level,x,y), ...originOf(level,x,y) };
+  }
+
+  function easeOutCubic(t){ return 1 - Math.pow(1-t,3); }
+  function visualAngle(node, now=performance.now()){
+    const anim = animations.get(node.k);
+    if (!anim) return orientation(node.level,node.x,node.y) * HALF_PI;
+    const t = Math.min(1, Math.max(0, (now - anim.start) / anim.duration));
+    return anim.from + (anim.to - anim.from) * easeOutCubic(t);
+  }
+  function nextClockwiseEquivalent(targetOrientation, fromAngle){
+    const base = targetOrientation * HALF_PI;
+    let target = base + Math.ceil((fromAngle - base) / Math.PI) * Math.PI;
+    if (target <= fromAngle + 0.001) target += Math.PI;
+    return target;
+  }
+  function pruneAnimations(now){ for (const [k,a] of animations) if (now - a.start >= a.duration) animations.delete(k); }
+
+  function draw(){
+    raf = 0;
+    const now = performance.now();
+    pruneAnimations(now);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.fillStyle = PAPER;
+    ctx.fillRect(0,0,width,height);
+    setWorldTransform();
+
+    const leaves = collectLeaves();
+    const levels = [...new Set(leaves.map(n => n.level))].sort((a,b)=>a-b);
+    for (const level of levels) {
+      for (const node of leaves) if (node.level === level) drawWingedField(node, visualAngle(node, now));
+      for (const node of leaves) if (node.level === level) drawWingedBands(node, visualAngle(node, now));
+    }
+    if (animations.size) requestDraw();
+  }
+
+  function tileColors(level){ const normal = level % 2 === 0; return { field: normal ? PAPER : INK, stroke: normal ? INK : PAPER }; }
+  function withTileTransform(node, angle, render){
+    const {ox:x, oy:y, s} = node;
+    ctx.save();
+    ctx.translate(x + s/2, y + s/2);
+    ctx.rotate(angle);
+    ctx.translate(-s/2, -s/2);
+    render();
+    ctx.restore();
+  }
+
+  function drawWingedField(node, angle){
+    const {level,s} = node;
+    const {field} = tileColors(level);
+    const r = s/3;
+    withTileTransform(node, angle, () => {
+      ctx.fillStyle = field;
+      ctx.beginPath();
+      ctx.rect(0,0,s,s);
+      ctx.moveTo(r,0); ctx.arc(0,0,r,0,PI2);
+      ctx.moveTo(s+r,0); ctx.arc(s,0,r,0,PI2);
+      ctx.moveTo(r,s); ctx.arc(0,s,r,0,PI2);
+      ctx.moveTo(s+r,s); ctx.arc(s,s,r,0,PI2);
+      ctx.fill();
+    });
+  }
+
+  function drawWingedBands(node, angle){
+    const {level,s} = node;
+    const {stroke} = tileColors(level);
+    withTileTransform(node, angle, () => {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = s/3;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.arc(0,0,s/2,0,HALF_PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(s,s,s/2,Math.PI,Math.PI + HALF_PI);
+      ctx.stroke();
+    });
+  }
+
+  function rotateNode(node){
+    const from = visualAngle(node);
+    if (flip.has(node.k)) flip.delete(node.k); else flip.add(node.k);
+    const target = orientation(node.level,node.x,node.y);
+    animations.set(node.k, { from, to:nextClockwiseEquivalent(target, from), start:performance.now(), duration:ROTATE_MS });
+    saveState(); requestDraw();
+  }
+  function fractureNode(node){
+    if (node.level >= MAX_LEVEL) return;
+    if (node.s * camera.zoom < MIN_SIZE_SCREEN * 1.8) return;
+    split.add(node.k); flip.delete(node.k); saveState(); requestDraw();
+  }
+  function isDescendantOf(k,parent){
+    const n = parseKey(k);
+    if (n.level <= parent.level) return false;
+    const shift = n.level - parent.level;
+    return (n.x >> shift) === parent.x && (n.y >> shift) === parent.y;
+  }
+  function joinNode(node){
+    if (node.level === 0) return;
+    const parent = { level:node.level-1, x:Math.floor(node.x/2), y:Math.floor(node.y/2) };
+    const pk = key(parent.level,parent.x,parent.y);
+    split.delete(pk);
+    for (const k of [...split]) if (isDescendantOf(k,parent)) split.delete(k);
+    for (const k of [...flip]) if (isDescendantOf(k,parent)) flip.delete(k);
+    for (const k of [...animations.keys()]) if (isDescendantOf(k,parent)) animations.delete(k);
+    saveState(); requestDraw();
+  }
+
+  const pointers = new Map();
+  const pointer = { id:null, down:false, moved:false, startX:0, startY:0, lastX:0, lastY:0, lastT:0, pinch:false, pinchDist:1, pinchZoom:1, pinchWorld:null };
+  function showHint(text){ hint.textContent = text; hint.classList.add('visible'); clearTimeout(hintTimer); hintTimer = setTimeout(() => hint.classList.remove('visible'),2500); }
+  function stopInertia(){ if (inertiaRaf) cancelAnimationFrame(inertiaRaf); inertiaRaf=0; velocity.x=velocity.y=0; }
+
+  canvas.addEventListener('pointerdown', e => {
+    stopInertia(); pointers.set(e.pointerId, {x:e.clientX,y:e.clientY}); canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging');
+    if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      pointer.pinch = true;
+      pointer.pinchDist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y) || 1;
+      pointer.pinchZoom = camera.zoom;
+      pointer.pinchWorld = screenToWorld((pts[0].x+pts[1].x)/2, (pts[0].y+pts[1].y)/2);
+      return;
+    }
+    if (pointers.size === 1) {
+      pointer.id=e.pointerId; pointer.down=true; pointer.moved=false;
+      pointer.startX=pointer.lastX=e.clientX; pointer.startY=pointer.lastY=e.clientY; pointer.lastT=performance.now(); velocity.x=velocity.y=0;
+    }
+  });
+
+  canvas.addEventListener('pointermove', e => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, {x:e.clientX,y:e.clientY});
+    if (pointer.pinch && pointers.size >= 2) {
+      const pts = [...pointers.values()].slice(0,2);
+      const cx=(pts[0].x+pts[1].x)/2, cy=(pts[0].y+pts[1].y)/2;
+      const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y) || 1;
+      camera.zoom = clamp(pointer.pinchZoom * dist / pointer.pinchDist, .22, 5.5);
+      camera.x = pointer.pinchWorld.x - (cx - width/2) / camera.zoom;
+      camera.y = pointer.pinchWorld.y - (cy - height/2) / camera.zoom;
+      requestDraw(); return;
+    }
+    if (!pointer.down || e.pointerId !== pointer.id) return;
+    const now=performance.now(), dx=e.clientX-pointer.lastX, dy=e.clientY-pointer.lastY, dt=Math.max(1, now-pointer.lastT);
+    if (Math.hypot(e.clientX-pointer.startX,e.clientY-pointer.startY) > 7) pointer.moved = true;
+    camera.x -= dx / camera.zoom; camera.y -= dy / camera.zoom;
+    velocity.x = -dx / dt / camera.zoom; velocity.y = -dy / dt / camera.zoom;
+    pointer.lastX=e.clientX; pointer.lastY=e.clientY; pointer.lastT=now;
+    requestDraw();
+  });
+
+  function endPointer(e){
+    const wasPrimary = e.pointerId === pointer.id;
+    pointers.delete(e.pointerId);
+    if (pointer.pinch && pointers.size < 2) { pointer.pinch=false; pointer.down=false; canvas.classList.remove('dragging'); return; }
+    if (!wasPrimary || !pointer.down) return;
+    pointer.down=false; pointer.id=null; canvas.classList.remove('dragging');
+    if (!pointer.moved) {
+      const w=screenToWorld(e.clientX,e.clientY), node=findLeafAt(w.x,w.y);
+      if (mode === 'rotate') rotateNode(node); else if (mode === 'fracture') fractureNode(node); else joinNode(node);
+      return;
+    }
+    if (Math.hypot(velocity.x,velocity.y) > .04) startInertia();
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  function startInertia(){
+    let last=performance.now();
+    const step=()=>{
+      const now=performance.now(), dt=Math.min(32, now-last); last=now;
+      camera.x += velocity.x * dt; camera.y += velocity.y * dt;
+      const decay = Math.pow(.92, dt/16.6667); velocity.x *= decay; velocity.y *= decay;
+      requestDraw();
+      if (Math.hypot(velocity.x,velocity.y) > .01) inertiaRaf = requestAnimationFrame(step); else inertiaRaf = 0;
+    };
+    inertiaRaf = requestAnimationFrame(step);
+  }
+
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    const before=screenToWorld(e.clientX,e.clientY);
+    camera.zoom = clamp(camera.zoom * Math.exp(-e.deltaY * .0012), .22, 5.5);
+    camera.x = before.x - (e.clientX - width/2) / camera.zoom;
+    camera.y = before.y - (e.clientY - height/2) / camera.zoom;
+    requestDraw();
+  }, { passive:false });
+
+  buttons.forEach(button => button.addEventListener('click', () => {
+    mode = button.dataset.mode;
+    buttons.forEach(b => b.classList.toggle('active', b === button));
+    showHint(mode === 'rotate' ? 'tap a tile to rotate' : mode === 'fracture' ? 'tap a tile to split it into 4' : 'tap a child tile to join its group');
+  }));
+
+  window.addEventListener('keydown', e => {
+    if (e.key === '1') buttons[0].click();
+    if (e.key === '2') buttons[1].click();
+    if (e.key === '3') buttons[2].click();
+    if (e.key === '0') { camera.x = camera.y = 0; camera.zoom = 1; requestDraw(); }
+    if (e.key.toLowerCase() === 'c') { split.clear(); flip.clear(); animations.clear(); saveState(); requestDraw(); }
+  });
+
+  window.addEventListener('resize', resize, { passive:true });
+  setTimeout(() => hint.classList.remove('visible'), 2600);
+  resize();
+})();
+</script>
+</body>
+</html>
