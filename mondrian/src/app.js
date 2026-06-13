@@ -20,9 +20,11 @@ if ('serviceWorker' in navigator) {
   const canvas = document.getElementById("stage");
   const ctx = canvas.getContext("2d", { alpha: false });
   const toolbar = document.getElementById("toolbar");
-  const buttons = [...toolbar.querySelectorAll("button")];
+  const toolButtons = [...toolbar.querySelectorAll("button[data-tool]")];
 
   let activeTool = "split-v";
+  let undoStack = [];
+  let redoStack = [];
 
   let dpr = 1;
   let cssW = 1;
@@ -45,6 +47,10 @@ if ('serviceWorker' in navigator) {
   });
 
   let root = defaultRoot();
+
+  function cloneRoot(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
 
   function load() {
     try {
@@ -122,12 +128,12 @@ if ('serviceWorker' in navigator) {
   }
 
   function splitNode(node, dir, x, y) {
-    if (node.children) return;
+    if (node.children) return false;
 
     // Avoid pathological splits that become visually impossible to tap.
     const minWorldSize = 18 / camera.z;
-    if (dir === "v" && node.w < minWorldSize * 2) return;
-    if (dir === "h" && node.h < minWorldSize * 2) return;
+    if (dir === "v" && node.w < minWorldSize * 2) return false;
+    if (dir === "h" && node.h < minWorldSize * 2) return false;
 
     if (dir === "v") {
       const splitX = Math.max(node.x + minWorldSize, Math.min(node.x + node.w - minWorldSize, x));
@@ -144,18 +150,52 @@ if ('serviceWorker' in navigator) {
         { x: node.x, y: splitY,     w: node.w, h: node.h - h, color: node.color, children: null }
       ];
     }
+
+    return true;
+  }
+
+  function pushUndoSnapshot(snapshot) {
+    undoStack.push(snapshot);
+    if (undoStack.length > 100) undoStack.shift();
+    redoStack = [];
+  }
+
+  function restoreFromHistory(fromStack, toStack) {
+    if (!fromStack.length) return;
+    toStack.push(cloneRoot(root));
+    root = fromStack.pop();
+    saveSoon();
+    requestDraw();
+  }
+
+  function clearCanvas() {
+    if (!root.children && root.color === "white") return;
+    pushUndoSnapshot(cloneRoot(root));
+    root = defaultRoot();
+    saveSoon();
+    requestDraw();
   }
 
   function applyTool(x, y) {
     const leaf = findLeaf(root, x, y);
     if (!leaf) return;
 
-    if (activeTool === "split-v") splitNode(leaf, "v", x, y);
-    else if (activeTool === "split-h") splitNode(leaf, "h", x, y);
-    else if (activeTool === "paint-yellow") leaf.color = "yellow";
-    else if (activeTool === "paint-blue") leaf.color = "blue";
-    else if (activeTool === "paint-red") leaf.color = "red";
+    const before = cloneRoot(root);
+    let changed = false;
 
+    if (activeTool === "split-v") changed = splitNode(leaf, "v", x, y);
+    else if (activeTool === "split-h") changed = splitNode(leaf, "h", x, y);
+    else if (activeTool.startsWith("paint-")) {
+      const color = activeTool.replace("paint-", "");
+      if (leaf.color !== color) {
+        leaf.color = color;
+        changed = true;
+      }
+    }
+
+    if (!changed) return;
+
+    pushUndoSnapshot(before);
     saveSoon();
     requestDraw();
   }
@@ -264,11 +304,25 @@ if ('serviceWorker' in navigator) {
   }
 
   toolbar.addEventListener("click", (e) => {
+    const actionBtn = e.target.closest("button[data-action]");
+    if (actionBtn?.dataset.action === "undo") {
+      restoreFromHistory(undoStack, redoStack);
+      return;
+    }
+    if (actionBtn?.dataset.action === "redo") {
+      restoreFromHistory(redoStack, undoStack);
+      return;
+    }
+    if (actionBtn?.dataset.action === "clear") {
+      clearCanvas();
+      return;
+    }
+
     const btn = e.target.closest("button[data-tool]");
     if (!btn) return;
 
     activeTool = btn.dataset.tool;
-    for (const b of buttons) b.classList.toggle("active", b === btn);
+    for (const b of toolButtons) b.classList.toggle("active", b === btn);
   });
 
   const pointers = new Map();
@@ -420,14 +474,15 @@ if ('serviceWorker' in navigator) {
     const map = {
       "1": "split-v",
       "2": "split-h",
-      "3": "paint-yellow",
-      "4": "paint-blue",
-      "5": "paint-red"
+      "3": "paint-white",
+      "4": "paint-yellow",
+      "5": "paint-blue",
+      "6": "paint-red"
     };
     if (!map[e.key]) return;
 
     activeTool = map[e.key];
-    for (const b of buttons) b.classList.toggle("active", b.dataset.tool === activeTool);
+    for (const b of toolButtons) b.classList.toggle("active", b.dataset.tool === activeTool);
   });
 
   window.addEventListener("resize", resize);

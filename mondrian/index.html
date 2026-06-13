@@ -18,11 +18,15 @@
 <div id="app">
   <canvas id="stage"></canvas>
   <nav id="toolbar" aria-label="Tools">
-    <button type="button" data-tool="split-v" class="active">Split V</button>
-    <button type="button" data-tool="split-h">Split H</button>
-    <button type="button" data-tool="paint-yellow">Yellow</button>
-    <button type="button" data-tool="paint-blue">Blue</button>
-    <button type="button" data-tool="paint-red">Red</button>
+    <button type="button" data-tool="split-v" class="tool-button tool-split-v active" aria-label="Split vertically"></button>
+    <button type="button" data-tool="split-h" class="tool-button tool-split-h" aria-label="Split horizontally"></button>
+    <button type="button" data-tool="paint-white" class="tool-button tool-fill tool-fill-white" aria-label="Fill white"></button>
+    <button type="button" data-tool="paint-yellow" class="tool-button tool-fill tool-fill-yellow" aria-label="Fill yellow"></button>
+    <button type="button" data-tool="paint-blue" class="tool-button tool-fill tool-fill-blue" aria-label="Fill blue"></button>
+    <button type="button" data-tool="paint-red" class="tool-button tool-fill tool-fill-red" aria-label="Fill red"></button>
+    <button type="button" data-action="undo" class="tool-button tool-undo" aria-label="Undo"><span aria-hidden="true"></span></button>
+    <button type="button" data-action="redo" class="tool-button tool-redo" aria-label="Redo"><span aria-hidden="true"></span></button>
+    <button type="button" data-action="clear" class="tool-button tool-clear" aria-label="Clear"></button>
   </nav>
 </div>
 
