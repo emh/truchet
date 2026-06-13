@@ -51,7 +51,6 @@ let width = 0;
 let height = 0;
 let dpr = 1;
 let raf = 0;
-let inertiaRaf = 0;
 let saveTimer = 0;
 let zoom = 1;
 let lastShakeTime = 0;
@@ -59,7 +58,6 @@ let lastMotion = null;
 let motionPermissionRequested = false;
 
 const camera = { x: 0, y: 0 };
-const velocity = { x: 0, y: 0 };
 const edits = loadEdits(STORAGE_KEY, TILE_TYPES.length);
 const animations = new Map();
 const spriteCache = new Map();
@@ -76,7 +74,7 @@ const pointer = {
   startY: 0,
   lastX: 0,
   lastY: 0,
-  lastT: 0
+  lastTileKey: null
 };
 
 const pinch = {
@@ -372,15 +370,7 @@ function advanceTile(ix, iy) {
   requestDraw();
 }
 
-function stopInertia() {
-  if (inertiaRaf) cancelAnimationFrame(inertiaRaf);
-  inertiaRaf = 0;
-  velocity.x = 0;
-  velocity.y = 0;
-}
-
 function resetFidget() {
-  stopInertia();
   edits.clear();
   animations.clear();
   spriteCache.clear();
@@ -394,38 +384,30 @@ function resetFidget() {
   requestDraw();
 }
 
-function startInertia() {
-  let last = performance.now();
-  const decayPerFrame = 0.92;
+function rotateTileForStroke(ix, iy) {
+  const key = keyOf(ix, iy);
+  if (pointer.lastTileKey === key) return;
 
-  const step = () => {
-    const now = performance.now();
-    const dt = Math.min(32, now - last);
-    last = now;
+  pointer.lastTileKey = key;
+  advanceTile(ix, iy);
+}
 
-    camera.x += (velocity.x * dt) / zoom;
-    camera.y += (velocity.y * dt) / zoom;
+function rotateTilesAlongStroke(fromX, fromY, toX, toY) {
+  const distance = Math.hypot(toX - fromX, toY - fromY);
+  const step = Math.max(6, TILE_SIZE * zoom * 0.3);
+  const count = Math.max(1, Math.ceil(distance / step));
 
-    const decay = Math.pow(decayPerFrame, dt / 16.6667);
-    velocity.x *= decay;
-    velocity.y *= decay;
-
-    requestDraw();
-
-    if (Math.hypot(velocity.x, velocity.y) > 0.01) {
-      inertiaRaf = requestAnimationFrame(step);
-    } else {
-      inertiaRaf = 0;
-      velocity.x = 0;
-      velocity.y = 0;
-    }
-  };
-
-  inertiaRaf = requestAnimationFrame(step);
+  for (let i = 0; i <= count; i++) {
+    const t = i / count;
+    const tile = tileFromScreen(
+      fromX + (toX - fromX) * t,
+      fromY + (toY - fromY) * t
+    );
+    rotateTileForStroke(tile.ix, tile.iy);
+  }
 }
 
 canvas.addEventListener('pointerdown', (event) => {
-  stopInertia();
   requestMotionPermission();
   activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
   canvas.setPointerCapture(event.pointerId);
@@ -445,9 +427,7 @@ canvas.addEventListener('pointerdown', (event) => {
   pointer.moved = false;
   pointer.startX = pointer.lastX = event.clientX;
   pointer.startY = pointer.lastY = event.clientY;
-  pointer.lastT = performance.now();
-  velocity.x = 0;
-  velocity.y = 0;
+  pointer.lastTileKey = null;
 });
 
 canvas.addEventListener('pointermove', (event) => {
@@ -461,29 +441,21 @@ canvas.addEventListener('pointermove', (event) => {
 
   if (!pointer.down || event.pointerId !== pointer.id) return;
 
-  const now = performance.now();
-  const dx = event.clientX - pointer.lastX;
-  const dy = event.clientY - pointer.lastY;
-  const dt = Math.max(1, now - pointer.lastT);
-
   if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) > 7) {
     pointer.moved = true;
   }
 
-  camera.x -= dx / zoom;
-  camera.y -= dy / zoom;
-  velocity.x = -dx / dt;
-  velocity.y = -dy / dt;
+  if (pointer.moved) {
+    rotateTilesAlongStroke(pointer.lastX, pointer.lastY, event.clientX, event.clientY);
+  }
 
   pointer.lastX = event.clientX;
   pointer.lastY = event.clientY;
-  pointer.lastT = now;
-
-  requestDraw();
 });
 
 function endPointer(event) {
   activePointers.delete(event.pointerId);
+  if (activePointers.size === 0) canvas.classList.remove('dragging');
 
   if (pinch.active) {
     if (activePointers.size < 2) endPinch();
@@ -491,18 +463,19 @@ function endPointer(event) {
   }
 
   if (!pointer.down || event.pointerId !== pointer.id) return;
+  if (pointer.moved) {
+    rotateTilesAlongStroke(pointer.lastX, pointer.lastY, event.clientX, event.clientY);
+  }
+
   pointer.down = false;
   pointer.id = null;
+  pointer.lastTileKey = null;
   canvas.classList.remove('dragging');
 
   if (!pointer.moved) {
     const tile = tileFromScreen(event.clientX, event.clientY);
     advanceTile(tile.ix, tile.iy);
-    return;
   }
-
-  const speed = Math.hypot(velocity.x, velocity.y);
-  if (speed > 0.06) startInertia();
 }
 
 function pinchPoints() {
