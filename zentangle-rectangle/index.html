@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#f3ece0" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Zentangle Grid" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>zentangle grid</title>
+  <link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+  <main id="app" aria-label="Zentangle grid canvas">
+    <canvas id="stage"></canvas>
+    <nav id="toolbar" class="toolbar" aria-label="Line settings" hidden>
+      <div class="tool">
+        <div class="flyout" data-flyout="thickness" hidden></div>
+        <button class="tool-btn" type="button" data-toolbtn="thickness" aria-label="Thickness">
+          <svg viewBox="0 0 36 36" width="30" height="30" aria-hidden="true">
+            <line x1="7" y1="18" x2="29" y2="18" stroke="currentColor" stroke-width="6" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <button class="tool-btn danger" type="button" id="deleteBtn" aria-label="Delete line">
+        <svg viewBox="0 0 36 36" width="26" height="26" aria-hidden="true">
+          <path d="M10 13 h16 M15 13 v-2 a2 2 0 0 1 2-2 h2 a2 2 0 0 1 2 2 v2 M12.5 13 l1.3 13.5 a2.2 2.2 0 0 0 2.2 2 h4 a2.2 2.2 0 0 0 2.2-2 L24.5 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+    </nav>
+    <nav id="fillToolbar" class="toolbar" aria-label="Fill settings" hidden>
+      <div class="tool">
+        <div class="flyout" data-fillflyout="pattern" hidden></div>
+        <button class="tool-btn" type="button" data-filltoolbtn="pattern" aria-label="Fill pattern"></button>
+      </div>
+      <div class="tool">
+        <div class="flyout" data-fillflyout="density" hidden></div>
+        <button class="tool-btn" type="button" data-filltoolbtn="density" aria-label="Fill density"></button>
+      </div>
+      <button class="tool-btn danger" type="button" id="fillDeleteBtn" aria-label="Delete fill">
+        <svg viewBox="0 0 36 36" width="26" height="26" aria-hidden="true">
+          <path d="M10 13 h16 M15 13 v-2 a2 2 0 0 1 2-2 h2 a2 2 0 0 1 2 2 v2 M12.5 13 l1.3 13.5 a2.2 2.2 0 0 0 2.2 2 h4 a2.2 2.2 0 0 0 2.2-2 L24.5 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+    </nav>
+  </main>
+
+  <script type="module" src="./src/app.js"></script>
+  <script async data-id="101507205" src="//static.getclicky.com/js"></script>
+</body>
+</html>

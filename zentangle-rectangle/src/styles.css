@@ -1,0 +1,138 @@
+:root {
+  --paper: #f3ece0;
+  --ink: #17130f;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--paper);
+  color: var(--ink);
+  font: 13px/1.2 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--paper);
+  touch-action: none;
+}
+
+#stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.toolbar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(23, 19, 15, 0.16);
+  border-radius: 18px;
+  background: rgba(243, 236, 224, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(23, 19, 15, 0.14);
+}
+
+.toolbar[hidden] {
+  display: none;
+}
+
+.tool {
+  position: relative;
+  display: flex;
+}
+
+.tool-btn {
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(23, 19, 15, 0.2);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.4);
+  color: var(--ink);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.tool-btn:active {
+  transform: translateY(1px);
+}
+
+.tool-btn.active {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.tool-btn.danger {
+  color: #d13030;
+}
+
+.flyout {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(23, 19, 15, 0.16);
+  border-radius: 16px;
+  background: rgba(243, 236, 224, 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 12px 30px rgba(23, 19, 15, 0.18);
+}
+
+.flyout[hidden] {
+  display: none;
+}
+
+.opt {
+  width: 62px;
+  height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(23, 19, 15, 0.18);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--ink);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.opt:active {
+  transform: translateY(1px);
+}
+
+.opt.active {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
